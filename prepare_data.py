@@ -12,53 +12,75 @@ all_dfs = []
 
 for file in csv_files:
     df = pd.read_csv(file)
-    
+
     # --------------------------
     # 2️⃣ Normalize column names
     # --------------------------
     df.columns = [re.sub(r'[^a-zA-Z0-9]', '', col).lower() for col in df.columns]
-    
+
     # --------------------------
     # 3️⃣ Detect columns robustly
     # --------------------------
     # Title
     title_col = next((col for col in df.columns if 'title' in col), None)
-    
+
     # Year
     year_col = next((col for col in df.columns if 'year' in col), None)
-    
+
     # Organization / Assignee
     org_col = next((col for col in df.columns if 'assignee' in col or 'applicant' in col or 'organization' in col), None)
-    
+
     # Keywords / Abstract
     kw_col = next((col for col in df.columns if 'abstract' in col or 'keyword' in col or 'summary' in col), None)
-    
+
+    # Any existing link-like column
+    link_col = next((col for col in df.columns if col in ['url','link','patentlink','patent_url','patentlinkurl']), None)
+
     # --------------------------
     # 4️⃣ Build clean dataframe
     # --------------------------
     df_clean = pd.DataFrame()
-    
+
     df_clean['Title'] = df[title_col] if title_col else "Unknown Title"
     df_clean['Domain'] = df['domain'] if 'domain' in df.columns else file.split('\\')[-1].split('.')[0]
     df_clean['Year'] = df[year_col] if year_col else 2023
-    
+
     # Organization (join multiple names if present)
     if org_col:
         df_clean['Organization'] = df[org_col].apply(lambda x: str(x).replace(';', ',').strip())
     else:
         df_clean['Organization'] = "Unknown Org"
-    
+
     df_clean['Keywords'] = df[kw_col] if kw_col else "N/A"
-    
+
     # TRL column
     if 'trl' in df.columns:
         df_clean['TRL'] = df['trl']
     else:
         df_clean['TRL'] = [random.randint(1,9) for _ in range(len(df_clean))]
-    
+
+    # --------------------------
+    # 4.1️⃣ Patent Link column
+    # --------------------------
+    if link_col:
+        # Normalize existing links and ensure absolute URLs
+        links = df[link_col].astype(str).str.strip().replace(['', 'nan', 'None', 'NULL'], pd.NA)
+        links = links.apply(lambda x: f"https://{x}" if pd.notna(x) and not str(x).startswith(('http://','https://')) else x)
+        df_clean['Patent Link'] = links
+    else:
+        df_clean['Patent Link'] = pd.NA
+
+    # Fallback: auto-generate Google search links when missing
+    df_clean['Patent Link'] = df_clean.apply(
+        lambda row: row['Patent Link']
+        if pd.notna(row['Patent Link'])
+        else f"https://www.google.com/search?q={str(row['Title'])} site:patents.google.com",
+        axis=1
+    )
+
     # Optional: limit rows per CSV for demo
     df_clean = df_clean.head(200)
-    
+
     all_dfs.append(df_clean)
 
 # --------------------------
@@ -74,3 +96,4 @@ final_df.reset_index(drop=True, inplace=True)
 final_df.to_csv('data/multi_domain_demo_data_clean.csv', index=False)
 
 print("✅ Clean CSV ready! Total rows:", len(final_df))
+
